@@ -71,15 +71,10 @@ function decryptPassword(stored) {
   }
 }
 
-const DEFAULT_WORLDS = [
-  {
-    id: 'shangrila',
-    name: 'Shangrila MUX',
-    host: 'shangrilamux.com',
-    port: 9999,
-    description: 'Adult roleplay MUX — est. 2001'
-  }
-];
+const DEFAULT_WORLDS_FILE = path.join(__dirname, 'worlds.default.json');
+const DEFAULT_WORLDS = fs.existsSync(DEFAULT_WORLDS_FILE)
+  ? JSON.parse(fs.readFileSync(DEFAULT_WORLDS_FILE, 'utf8'))
+  : [];
 
 function loadWorlds() {
   try {
