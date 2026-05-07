@@ -24,6 +24,60 @@ const TERM_THEME = {
   brightWhite:     '#f0f6fc',
 };
 
+// ── Session persistence ────────────────────────────────
+
+const SESSIONS_KEY = 'mc_sessions';
+const TERM_BUF_LIMIT = 75000; // chars of base64 ≈ ~56KB of terminal data
+
+function genSessionId() {
+  return crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
+}
+
+function saveSession(conn) {
+  const all = JSON.parse(localStorage.getItem(SESSIONS_KEY) || '{}');
+  all[conn.sessionId] = {
+    worldName: conn.world.name,
+    worldHost: conn.world.host,
+    worldPort: conn.world.port,
+    charName: conn.character ? conn.character.name : null,
+    tabLabel: conn.tabEl.querySelector('.tab-name').textContent,
+    termBuffer: conn.termBuffer || [],
+  };
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(all));
+}
+
+function clearSession(sessionId) {
+  if (!sessionId) return;
+  const all = JSON.parse(localStorage.getItem(SESSIONS_KEY) || '{}');
+  delete all[sessionId];
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(all));
+}
+
+function restoreSessions() {
+  const all = JSON.parse(localStorage.getItem(SESSIONS_KEY) || '{}');
+  for (const [sessionId, info] of Object.entries(all)) {
+    const world = { id: null, name: info.worldName, host: info.worldHost, port: info.worldPort, characters: [] };
+    let char = null;
+    if (info.charName) {
+      const saved = worlds.find(w => w.host.toLowerCase() === info.worldHost.toLowerCase() && w.port === info.worldPort);
+      char = (saved?.characters || []).find(c => c.name === info.charName) || null;
+    }
+    createTab(world, char, sessionId, info.tabLabel, info.termBuffer || []);
+  }
+}
+
+window.addEventListener('beforeunload', () => {
+  tabs.forEach(conn => {
+    if (conn.connected && conn.sessionId) {
+      saveSession(conn); // flush latest buffer to localStorage
+      navigator.sendBeacon('/api/park', new Blob(
+        [JSON.stringify({ sessionId: conn.sessionId })],
+        { type: 'application/json' }
+      ));
+    }
+  });
+});
+
 // ── State ─────────────────────────────────────────────
 
 let worlds = [];
@@ -265,9 +319,9 @@ function openConnection(worldId, character) {
   createTab(world, character);
 }
 
-function createTab(world, character) {
+function createTab(world, character, resumeSessionId = null, tabLabel = null, savedBuffer = null) {
   const id = ++tabSeq;
-  const label = character ? `${world.name} (${character.name})` : world.name;
+  const label = tabLabel || (character ? `${world.name} (${character.name})` : world.name);
 
   // Tab element
   const tabEl = document.createElement('div');
@@ -286,10 +340,11 @@ function createTab(world, character) {
   termArea.appendChild(pane);
 
   // xterm
+  const isMobile = window.innerWidth <= 768;
   const term = new Terminal({
     theme: TERM_THEME,
     fontFamily: "'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace",
-    fontSize: 14,
+    fontSize: isMobile ? 11 : 14,
     lineHeight: 1.2,
     cursorBlink: true,
     scrollback: 5000,
@@ -297,20 +352,52 @@ function createTab(world, character) {
   });
   const fitAddon = new FitAddon.FitAddon();
   term.loadAddon(fitAddon);
+  // Show pane briefly so xterm measures real dimensions, not zero (display:none)
+  pane.style.display = 'block';
   term.open(pane);
   fitAddon.fit();
+  pane.style.display = '';
 
+  if (isMobile) {
+    let touchStartY = 0;
+    const lineHeight = term.options.fontSize * term.options.lineHeight;
+    pane.addEventListener('touchstart', (e) => { touchStartY = e.touches[0].clientY; }, { passive: true });
+    pane.addEventListener('touchmove', (e) => {
+      const dy = touchStartY - e.touches[0].clientY;
+      touchStartY = e.touches[0].clientY;
+      term.scrollLines(Math.round(dy / lineHeight));
+    }, { passive: true });
+  }
+
+  const initBuf = savedBuffer || [];
   const conn = {
     id, ws: null, term, fitAddon, pane, tabEl, world,
     connected: false,
-    pendingCharacter: character || null,
+    sessionId: genSessionId(),
+    resumeSessionId,
+    character: character || null,
+    pendingCharacter: resumeSessionId ? null : (character || null), // don't auto-login on resume
     history: [], histIdx: -1, pendingInput: '',
     logging: false, logFilename: null,
+    termBuffer: [...initBuf],
+    termBufSize: initBuf.reduce((s, c) => s + c.length, 0),
   };
   tabs.set(id, conn);
 
   activateTab(id);
   connectWS(conn);
+  closeSidebar();
+
+  // xterm measures cell dimensions on its first render (async RAF).
+  // Double RAF guarantees we fire *after* that render, so fit() uses correct cell metrics.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    conn.fitAddon.fit();
+    if (savedBuffer && savedBuffer.length > 0) {
+      for (const chunk of savedBuffer) conn.term.write(b64ToBytes(chunk));
+      conn.term.scrollToBottom();
+    }
+  }));
+
   return conn;
 }
 
@@ -335,7 +422,12 @@ function activateTab(id) {
 function closeTab(id) {
   const conn = tabs.get(id);
   if (!conn) return;
-  if (conn.ws) { conn.ws.close(); conn.ws = null; }
+  clearSession(conn.sessionId);
+  if (conn.ws) {
+    if (conn.ws.readyState === WebSocket.OPEN) conn.ws.send(JSON.stringify({ type: 'disconnect' }));
+    conn.ws.close();
+    conn.ws = null;
+  }
   conn.pane.remove();
   conn.tabEl.remove();
   tabs.delete(id);
@@ -359,18 +451,52 @@ function connectWS(conn) {
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
   conn.ws = ws;
 
-  conn.term.write(`\x1b[2mConnecting to ${conn.world.host}:${conn.world.port}…\x1b[0m\r\n`);
+  if (conn.resumeSessionId) {
+    conn.term.write(`\x1b[2mResuming session…\x1b[0m\r\n`);
+  } else {
+    conn.term.write(`\x1b[2mConnecting to ${conn.world.host}:${conn.world.port}…\x1b[0m\r\n`);
+  }
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'connect', host: conn.world.host, port: conn.world.port }));
+    if (conn.resumeSessionId) {
+      ws.send(JSON.stringify({ type: 'resume', sessionId: conn.resumeSessionId }));
+      conn._resumeTimeout = setTimeout(() => {
+        if (conn.resumeSessionId) {
+          clearSession(conn.resumeSessionId);
+          conn.resumeSessionId = null;
+          conn.pendingCharacter = conn.character; // restore auto-login for fresh connect
+          conn.term.write(`\x1b[33mSession expired, reconnecting…\x1b[0m\r\n`);
+          if (conn.ws) { conn.ws.close(); conn.ws = null; }
+          setTimeout(() => connectWS(conn), 500);
+        }
+      }, 5000);
+    } else {
+      ws.send(JSON.stringify({ type: 'connect', host: conn.world.host, port: conn.world.port, sessionId: conn.sessionId }));
+    }
   };
 
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
 
+    if (msg.type === 'session_expired') {
+      clearSession(conn.resumeSessionId);
+      conn.resumeSessionId = null;
+      conn.pendingCharacter = conn.character; // restore auto-login for fresh connect
+      conn.term.write(`\x1b[33mSession expired, reconnecting…\x1b[0m\r\n`);
+      if (conn.ws) { conn.ws.close(); conn.ws = null; }
+      setTimeout(() => connectWS(conn), 1000);
+      return;
+    }
+
     if (msg.type === 'status') {
       conn.connected = msg.connected;
       conn.tabEl.querySelector('.tab-dot').classList.toggle('connected', msg.connected);
+      if (msg.connected) {
+        clearTimeout(conn._resumeTimeout);
+        if (conn.resumeSessionId) conn.sessionId = conn.resumeSessionId; // keep in sync with server
+        conn.resumeSessionId = null;
+        saveSession(conn);
+      } else { clearSession(conn.sessionId); }
 
       if (activeTabId === conn.id) {
         setInputEnabled(msg.connected);
@@ -397,6 +523,12 @@ function connectWS(conn) {
 
     if (msg.type === 'data') {
       conn.term.write(b64ToBytes(msg.data));
+      conn.termBuffer.push(msg.data);
+      conn.termBufSize += msg.data.length;
+      while (conn.termBufSize > TERM_BUF_LIMIT && conn.termBuffer.length > 1) {
+        conn.termBufSize -= conn.termBuffer[0].length;
+        conn.termBuffer.shift();
+      }
       if (conn.id !== activeTabId) conn.tabEl.classList.add('has-activity');
       if (document.hidden) startFaviconFlash();
     }
@@ -829,6 +961,24 @@ new ResizeObserver(() => {
   });
 }).observe(termArea);
 
+// ── Mobile sidebar ────────────────────────────────────
+
+const sidebarEl = document.getElementById('sidebar');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+function toggleSidebar() {
+  sidebarEl.classList.toggle('mobile-open');
+  sidebarOverlay.classList.toggle('mobile-open');
+}
+
+function closeSidebar() {
+  sidebarEl.classList.remove('mobile-open');
+  sidebarOverlay.classList.remove('mobile-open');
+}
+
+document.getElementById('btn-sidebar-toggle').addEventListener('click', toggleSidebar);
+sidebarOverlay.addEventListener('click', closeSidebar);
+
 // ── Boot ──────────────────────────────────────────────
 
-loadWorlds();
+loadWorlds().then(restoreSessions);

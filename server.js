@@ -20,6 +20,9 @@ fs.mkdirSync(LOGS_DIR, { recursive: true });
 
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const sessions = new Set();
+const parkedSessions = new Map();
+const parkFunctions = new Map();
+const GRACE_MS = 3 * 60 * 1000;
 
 function parseCookies(header) {
   const out = {};
@@ -328,6 +331,14 @@ app.get('/api/mushlist', async (req, res) => {
   }
 });
 
+app.post('/api/park', (req, res) => {
+  const { sessionId } = req.body;
+  if (!sessionId) return res.status(400).json({ error: 'sessionId required' });
+  const fn = parkFunctions.get(sessionId);
+  if (fn) fn();
+  res.json({ ok: true });
+});
+
 // ── Telnet IAC ────────────────────────────────────────
 
 const IAC = 255, WILL = 251, WONT = 252, DO = 253, DONT = 254;
@@ -380,6 +391,9 @@ wss.on('connection', (ws, req) => {
   if (!isAuthed(req)) { ws.close(1008, 'Unauthorized'); return; }
   let tcp = null;
   let logStream = null;
+  let currentSessionId = null;
+  let intentionalClose = false;
+  let parked = false;
 
   const telnet = makeTelnetProcessor((data) => {
     if (tcp && !tcp.destroyed) tcp.write(data);
@@ -389,29 +403,76 @@ wss.on('connection', (ws, req) => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
   }
 
+  function wireTcp() {
+    tcp.on('data', (data) => {
+      const clean = telnet(data);
+      if (clean) {
+        send({ type: 'data', data: clean.toString('base64') });
+        if (logStream) {
+          const text = clean.toString('utf8').replace(ANSI_RE, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+          logStream.write(text);
+        }
+      }
+    });
+    tcp.on('error', (err) => send({ type: 'error', message: err.message }));
+    tcp.on('close', () => {
+      send({ type: 'status', connected: false });
+      if (logStream) { logStream.write('\n--- Session ended ---\n'); logStream.end(); logStream = null; }
+    });
+  }
+
+  function doPark() {
+    if (parked || !currentSessionId || !tcp || tcp.destroyed) return;
+    parked = true;
+    intentionalClose = true;
+    const sid = currentSessionId;
+    const buffer = [];
+    tcp.removeAllListeners('data');
+    tcp.removeAllListeners('error');
+    tcp.removeAllListeners('close');
+    tcp.on('data', (data) => { const clean = telnet(data); if (clean) buffer.push(clean); });
+    tcp.on('error', () => parkedSessions.delete(sid));
+    tcp.on('close', () => parkedSessions.delete(sid));
+    const timer = setTimeout(() => {
+      const p = parkedSessions.get(sid);
+      if (p) { p.tcp.destroy(); if (p.logStream) p.logStream.end(); parkedSessions.delete(sid); }
+    }, GRACE_MS);
+    parkedSessions.set(sid, { tcp, buffer, logStream, timer });
+    parkFunctions.delete(sid);
+    logStream = null;
+  }
+
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
+    if (msg.type === 'resume') {
+      const entry = parkedSessions.get(msg.sessionId);
+      if (!entry) { send({ type: 'session_expired' }); return; }
+      clearTimeout(entry.timer);
+      parkedSessions.delete(msg.sessionId);
+      currentSessionId = msg.sessionId;
+      tcp = entry.tcp;
+      logStream = entry.logStream;
+      tcp.removeAllListeners('data');
+      tcp.removeAllListeners('error');
+      tcp.removeAllListeners('close');
+      wireTcp();
+      for (const chunk of entry.buffer) {
+        send({ type: 'data', data: chunk.toString('base64') });
+      }
+      send({ type: 'status', connected: true });
+      parkFunctions.set(currentSessionId, doPark);
+      return;
+    }
+
     if (msg.type === 'connect') {
+      currentSessionId = msg.sessionId || null;
       if (tcp) tcp.destroy();
       tcp = net.createConnection(msg.port, msg.host);
       tcp.on('connect', () => send({ type: 'status', connected: true }));
-      tcp.on('data', (data) => {
-        const clean = telnet(data);
-        if (clean) {
-          send({ type: 'data', data: clean.toString('base64') });
-          if (logStream) {
-            const text = clean.toString('utf8').replace(ANSI_RE, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-            logStream.write(text);
-          }
-        }
-      });
-      tcp.on('error', (err) => send({ type: 'error', message: err.message }));
-      tcp.on('close', () => {
-        send({ type: 'status', connected: false });
-        if (logStream) { logStream.write('\n--- Session ended ---\n'); logStream.end(); logStream = null; }
-      });
+      wireTcp();
+      if (currentSessionId) parkFunctions.set(currentSessionId, doPark);
     }
 
     if (msg.type === 'input' && tcp && !tcp.destroyed) {
@@ -442,13 +503,21 @@ wss.on('connection', (ws, req) => {
     }
 
     if (msg.type === 'disconnect') {
+      intentionalClose = true;
+      if (currentSessionId) { parkFunctions.delete(currentSessionId); currentSessionId = null; }
       if (tcp) { tcp.destroy(); tcp = null; }
     }
   });
 
   ws.on('close', () => {
-    if (tcp) tcp.destroy();
-    if (logStream) { logStream.end(); logStream = null; }
+    if (currentSessionId) parkFunctions.delete(currentSessionId);
+    if (parked) return; // tcp already handed off to parkedSessions
+    if (!intentionalClose && currentSessionId && tcp && !tcp.destroyed) {
+      doPark(); // auto-park unexpected drops (network hiccup, etc.)
+    } else {
+      if (tcp) tcp.destroy();
+      if (logStream) { logStream.end(); logStream = null; }
+    }
   });
 });
 

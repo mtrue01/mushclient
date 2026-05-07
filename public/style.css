@@ -711,6 +711,52 @@ input.inline-rename {
 #char-form input { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 10px; outline: none; }
 #char-form input:focus { border-color: var(--accent); }
 
+/* ── Mobile ──────────────────────────────────────────── */
+
+#btn-sidebar-toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 16px;
+  width: 32px;
+  height: 28px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+#btn-sidebar-toggle:hover { background: var(--bg3); }
+
+#sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 49;
+  backdrop-filter: blur(2px);
+}
+#sidebar-overlay.mobile-open { display: block; }
+
+@media (max-width: 768px) {
+  #btn-sidebar-toggle { display: flex; }
+
+  #sidebar {
+    position: fixed;
+    top: 0;
+    left: calc(-1 * var(--sidebar));
+    bottom: 0;
+    z-index: 50;
+    transition: left .25s ease;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+  }
+  #sidebar.mobile-open { left: 0; }
+
+  #cmd-input { font-size: 16px; } /* prevent iOS auto-zoom on focus */
+}
+
 /* ── Scrollbars ──────────────────────────────────────── */
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
