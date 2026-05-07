@@ -17,8 +17,9 @@ A web-based MUSH/MUD/MUCK client that runs in your browser. Connect to multiple 
 ## Deploy to Railway
 
 1. Click the button above and set `APP_PASSWORD` to protect your instance
-2. Once deployed, go to your service → **Volumes** → **Add Volume**, mount path: `/app/data` — this persists your worlds, characters, and logs across deploys. Without it everything resets on redeploy.
-3. If adding a custom domain, set the port to `8080`
+2. Once deployed, go to your service → **Settings** → **Networking** → **Generate Domain** to get a public URL
+3. Go to your service → **Volumes** → **Add Volume**, mount path: `/app/data` — this persists your worlds, characters, and logs across deploys. Without it everything resets on redeploy.
+4. If adding a custom domain, set the port to `8080`
 
 ## Run Locally
 
