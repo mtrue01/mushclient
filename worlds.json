@@ -1,0 +1,67 @@
+[
+  {
+    "id": "shangrila",
+    "name": "Shangrila MUX",
+    "host": "shangrilamux.com",
+    "port": 9999,
+    "description": "Adult roleplay MUX — est. 2001",
+    "characters": [
+      {
+        "id": "1777945126699",
+        "name": "Cormac",
+        "password": "enc:fa0a86ba6a526dd286dbee25:0f187934b0a0c746a489eb76a1a909af:01a3cb18c967"
+      },
+      {
+        "id": "1777948443721",
+        "name": "Druegar",
+        "password": "enc:80f1b202de105b07583b4521:15482c631a243f29da2fd4f799ff21b3:9ed6c602462d"
+      },
+      {
+        "id": "1777987861904",
+        "name": "Cullen",
+        "password": "enc:c731fafe0e2a582842ba9509:595c6a968a6ad2abc367aeea9c69e986:23561532c4e81ee88d"
+      },
+      {
+        "id": "1777988082051",
+        "name": "Ashlyn",
+        "password": "enc:fabcea67cfd607e14eaf75bd:e0eabaf667ccb81fd8bd924fbdc7bbd0:ca4ddaf01e28"
+      }
+    ]
+  },
+  {
+    "id": "1777948662017",
+    "name": "The Laboratory",
+    "host": "labmush.mushpark.com",
+    "port": 3939,
+    "description": "Adult",
+    "characters": [
+      {
+        "id": "1777950377378",
+        "name": "Druegar",
+        "password": "enc:7196033dd5820b73d2c0a0e4:39d839e18f7318eafc2ef03ba0e50351:1afc8f7d22d1"
+      }
+    ]
+  },
+  {
+    "id": "1777948780302",
+    "name": "SluggyMUX",
+    "host": "sluggy.surly.org",
+    "port": 2025,
+    "description": "Social",
+    "characters": []
+  },
+  {
+    "id": "1777948803431",
+    "name": "Penultimate Destination",
+    "host": "penultimatemush.com",
+    "port": 9500,
+    "description": "Adult",
+    "characters": [
+      {
+        "id": "1777948944455",
+        "name": "Druegar",
+        "password": "enc:95d56d9683b0c5bf3eae7120:046e5f74ff634823239ca9d24f11cc2a:dbfa563a0884"
+      }
+    ]
+  }
+]

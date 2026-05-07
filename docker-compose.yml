@@ -1,0 +1,9 @@
+services:
+  mush-client:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./worlds.json:/app/worlds.json
+      - ./logs:/app/logs
+    restart: unless-stopped

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MUSH Client</title>
+  <link rel="icon" id="favicon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+
+    <aside id="sidebar">
+      <div id="sidebar-header">
+        <span class="sidebar-title">Worlds</span>
+        <div class="header-btns">
+          <button id="btn-browse" title="Browse MUSH list">☰</button>
+          <button id="btn-export" title="Export worlds as JSON">↓</button>
+          <button id="btn-import" title="Import worlds from JSON">↑</button>
+          <input type="file" id="import-file" accept=".json" style="display:none">
+          <button id="btn-add-world" title="Add World manually">+</button>
+        </div>
+      </div>
+      <div id="world-list"></div>
+      <div id="sidebar-footer">
+        <span id="footer-status">Ready</span>
+      </div>
+    </aside>
+
+    <div id="main">
+      <div id="tab-bar">
+        <div id="tabs"></div>
+      </div>
+
+      <div id="terminal-area">
+        <div id="welcome">
+          <div class="welcome-inner">
+            <div class="welcome-logo">⚔</div>
+            <h1>MUSH Client</h1>
+            <p>Select a world from the sidebar to connect.</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="input-bar">
+        <div id="input-wrap">
+          <input id="cmd-input" type="text" autocomplete="off" spellcheck="false" placeholder="Type a command and press Enter…" disabled>
+        </div>
+        <button id="btn-log" title="Toggle session logging" disabled>⏺</button>
+        <button id="btn-send" disabled>Send</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Browse overlay -->
+  <div id="browse-overlay" class="hidden">
+    <div id="browse-panel">
+      <div id="browse-header">
+        <div>
+          <h2>Browse MUSH List</h2>
+          <span class="browse-src">mushcode.com/mushlist · cached 5 min</span>
+        </div>
+        <button id="btn-browse-close" title="Close">✕</button>
+      </div>
+      <div id="browse-filters">
+        <input id="browse-search" type="text" placeholder="Search by name…" autocomplete="off">
+        <select id="browse-status-filter">
+          <option value="">All status</option>
+          <option value="UP">UP only</option>
+          <option value="DOWN">DOWN only</option>
+        </select>
+        <select id="browse-server-filter">
+          <option value="">All servers</option>
+        </select>
+      </div>
+      <div id="browse-results">
+        <div id="browse-empty" class="hidden">No results.</div>
+        <table id="browse-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Players</th>
+              <th>Server</th>
+              <th>Host</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="browse-tbody"></tbody>
+        </table>
+      </div>
+      <div id="browse-footer">
+        <span id="browse-count"></span>
+        <div id="browse-pagination">
+          <button id="btn-prev-page">← Prev</button>
+          <span id="browse-page-info"></span>
+          <button id="btn-next-page">Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Character modal -->
+  <div id="char-modal-overlay" class="hidden">
+    <div id="char-modal">
+      <h2 id="char-modal-title">Add Character</h2>
+      <form id="char-form">
+        <label>Character Name
+          <input name="charName" type="text" placeholder="e.g. Evelyn" required>
+        </label>
+        <label>Password
+          <input name="password" type="password" placeholder="Leave blank to keep existing">
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="btn-char-cancel">Cancel</button>
+          <button type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- World modal -->
+  <div id="modal-overlay" class="hidden">
+    <div id="modal">
+      <h2 id="modal-title">Add World</h2>
+      <form id="world-form">
+        <label>Name
+          <input name="name" type="text" placeholder="Shangrila MUX" required>
+        </label>
+        <label>Host
+          <input name="host" type="text" placeholder="shangrilamux.com" required>
+        </label>
+        <label>Port
+          <input name="port" type="number" placeholder="9999" min="1" max="65535" required>
+        </label>
+        <label>Description
+          <input name="description" type="text" placeholder="Optional notes">
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="btn-modal-cancel">Cancel</button>
+          <button type="submit" id="btn-modal-save">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
